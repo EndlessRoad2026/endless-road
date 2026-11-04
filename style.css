@@ -153,3 +153,5 @@ h1{font-family:'Bungee',sans-serif;font-size:clamp(40px,8vw,84px);letter-spacing
 #tCrouch{left:96px;bottom:240px}
 #tFire{right:30px;bottom:248px;width:84px;height:84px;background:rgba(230,57,70,.55)}
 .hidden{display:none!important}
+#ko{position:fixed;inset:0;z-index:15;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:radial-gradient(rgba(0,0,0,.15),rgba(0,0,0,.75));pointer-events:none;font-size:34px;font-family:Bungee,sans-serif;color:#ffd166;text-shadow:0 3px 0 #000}
+#ko span{font-family:Rubik,sans-serif;font-size:16px;color:#fff}

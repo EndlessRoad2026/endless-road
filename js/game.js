@@ -241,8 +241,8 @@ $('mpJoin').addEventListener('click',async()=>{
 });
 
 // ---------------------------------------------------------------------- holding things
-function holdObj(kind,obj){
-  P.holding={kind,obj};person.hold.add(obj);obj.position.set(0,0,0);obj.rotation.set(0,0,0);obj.scale.set(1,1,1);obj.visible=true;
+function placeInHand(hand,kind,obj){
+  hand.add(obj);obj.position.set(0,0,0);obj.rotation.set(0,0,0);obj.scale.set(1,1,1);obj.visible=true;
   if(kind==='wheel'||kind==='rim'||kind==='tyre'){obj.rotation.set(0,Math.PI/2,0);obj.position.set(0,0,.05);}
   else if(kind==='doorL'||kind==='doorR'){obj.rotation.set(0,Math.PI/2,0);obj.position.set(0,-.75,.05);}
   else if(kind==='hood'||kind==='trunk'||kind==='tailgate'){obj.rotation.set(-1.3,0,0);obj.position.set(0,.1,.15);}
@@ -254,6 +254,9 @@ function holdObj(kind,obj){
   else if(isGun(kind)){obj.position.set(.2,.25,0);}
   else if(isProp(kind)){obj.position.set(0,-.55,.1);}
   obj.traverse(m=>{if(m.isMesh)m.castShadow=true;});
+}
+function holdObj(kind,obj){
+  P.holding={kind,obj};placeInHand(person.hold,kind,obj);
   $('tFire').classList.toggle('hidden',!isGun(kind));
 }
 function releaseHeld(){const h=P.holding;if(!h)return null;person.hold.remove(h.obj);P.holding=null;viewModel.clear();$('tFire').classList.add('hidden');return h;}
@@ -522,7 +525,7 @@ function updatePerson(dt){
   if(P.grounded&&P.y<gy+.3)P.y=gy;
   P.phase+=(moving?spd:0)*dt*2.4;
   P.moveAmp+=((moving?(wantRun?.85:.55):0)-P.moveAmp)*Math.min(1,dt*8);
-  person.group.position.set(P.x,P.y-P.crouch*.38,P.z);person.group.rotation.set(0,P.h,0);
+  person.group.position.set(P.x,P.y-P.crouch*.38,P.z);person.group.rotation.set(0,P.h,0);if(koT>0){person.group.rotation.x=-1.45*Math.min(1,(3-koT)*4);person.group.position.y+=.15;}
   pose(person,crouching?'crouch':(P.holding&&isGun(P.holding.kind))?'aim':P.holding?'carry':'walk',P.phase,P.moveAmp);
   P.inside=houseAt(P.x,P.z,-.1);
   const c=candidates();promptAction=chooseTarget(c);
@@ -546,6 +549,7 @@ function shoot(kind){
   const sph=(c,rad,what)=>{const oc=c.clone().sub(o),tc=oc.dot(d);if(tc<t0)return;const d2=oc.lengthSq()-tc*tc;if(d2>rad*rad)return;const t=tc-Math.sqrt(rad*rad-d2);if(t<bt){bt=t;best=what;}};
   for(const a of animals)if(!a.held)sph(new THREE.Vector3(a.x,a.y+.28,a.z),.28,{a});
   for(const l of loose)if(l.prop){const p=l.obj.position;sph(new THREE.Vector3(p.x,p.y+(l.kind==='target'?1.05:.45),p.z),l.kind==='target'?.5:.45,{l});}
+  for(const r of Net.targets()){sph(new THREE.Vector3(r.x,r.y+(r.cr?.6:1.2),r.z),.32,{r});sph(new THREE.Vector3(r.x,r.y+(r.cr?.35:.55),r.z),.3,{r});}
   for(const V of vehicles)sph(new THREE.Vector3(V.x,V.y+.8,V.z),1.3,{V});
   nearChunks(P.z,ch=>{for(const C of ch.wrecks){const p=C.group.position;sph(new THREE.Vector3(p.x,p.y+.8,p.z),1.3,{V:true});}});
   // ground
@@ -553,6 +557,7 @@ function shoot(kind){
   const hit=o.clone().addScaledVector(d,bt);
   if(!best)return;
   if(best.a){const a=best.a;a.state='flee';a.t=5;a.h=Math.atan2(a.x-P.x,a.z-P.z);a.vy=3;SFX.squawk();spawnPuff(hit.x,hit.y,hit.z,0xffffff,10,.5,1.2);toast('🐔 BAWK! The chicken flaps away','good');}
+  else if(best.r){const r=best.r;SFX.hit();spawnPuff(hit.x,hit.y,hit.z,0xffe066,8,.3,1);Net.sendHit(r.id,rifle?50:25);toast(`🎯 You hit ${r.name}!`,'good');}
   else if(best.l){const l=best.l;SFX.hit();
     if(l.kind==='target'){const c=l.obj.localToWorld(new THREE.Vector3(0,1.05,.04)),dd=c.distanceTo(hit);toast(dd<.09?'🎯 BULLSEYE!':dd<.25?'🎯 Great shot!':'🎯 Hit!','good');spawnPuff(hit.x,hit.y,hit.z,0x8a5a33,5,.2);}
     else{l.vel=l.vel||{x:0,y:0,z:0,s:0};l.vel.x+=d.x*(rifle?7:4);l.vel.z+=d.z*(rifle?7:4);l.vel.y+=rifle?3.5:2.2;l.vel.s+=(Math.random()-.5)*14;spawnPuff(hit.x,hit.y,hit.z,0xcccccc,5,.2);}}
@@ -631,12 +636,29 @@ let promptHtml='';
 function showPrompt(t,html){const p=$('prompt');if(promptHtml!==t){promptHtml=t;if(html)p.innerHTML=t;else p.textContent=t;}p.classList.remove('hidden');}
 function hidePrompt(){$('prompt').classList.add('hidden');promptHtml='';}
 
+// ---------------------------------------------------------------------- multiplayer: getting hit by a friend knocks you out, then you wake up at your car
+let koT=0;
+Net.onHit=d=>{
+  if(state!=='play'||koT>0)return;
+  P.health-=d.dmg;flash();shake=.4;SFX.hit();
+  if(P.health>0){toast(`💥 ${d.name} hit you! (−${d.dmg})`,'warn');return;}
+  P.health=1;koT=3;Net.sendKo(d.from,d.name);toast(`💫 ${d.name} knocked you out!`,'warn');$('ko').classList.remove('hidden');
+};
+Net.onKo=d=>{if(d.by===Net.id)toast(`💫 You knocked out ${d.name}!`,'good');else toast(`💫 ${d.byName} knocked out ${d.name}`);};
+function updateKo(dt){
+  if(koT<=0)return;koT-=dt;for(const k in input)input[k]=false;
+  if(koT<=0){$('ko').classList.add('hidden');P.health=100;
+    if(P.holding){const h=releaseHeld();if(h.animal){const a=h.animal;a.held=false;a.x=P.x+.6;a.z=P.z;a.y=floorAt(a.x,a.z);a.state='flee';a.t=2;scene.add(h.obj);}else{scene.add(h.obj);restPose(h.obj,h.kind,P.x,floorAt(P.x,P.z),P.z,P.h);loose.push({kind:h.kind,obj:h.obj,prop:isProp(h.kind)});}}
+    const V=lastV;if(V&&!P.vehicle){const p=worldPoint(V.C,[-1.6,0,-.3]);P.x=p.x;P.z=p.z;P.y=floorAt(p.x,p.z);P.vy=0;}
+    toast('You wake up next to your car','good');}
+}
+
 // ---------------------------------------------------------------------- multiplayer: send my state ~12 times a second
 let netT=0;
 function netSend(dt){
   if(Net.role==='off')return;netT-=dt;if(netT>0)return;netT=.08;
   const V=P.vehicle;
-  Net.broadcast({t:'st',id:Net.id,name:Net.name,col:Net.col,x:P.x,y:P.y,z:P.z,h:P.h,cr:P.crouch>.5,ph:P.phase,amp:P.moveAmp,hold:!!P.holding,
+  Net.broadcast({t:'st',id:Net.id,name:Net.name,col:Net.col,x:P.x,y:P.y,z:P.z,h:P.h,cr:P.crouch>.5,ph:P.phase,amp:P.moveAmp,hold:P.holding?descOf(P.holding.obj):null,ko:koT>0,
     v:V?{type:V.type,p:V.C.pdesc,x:V.x,y:V.y-(V.sink||0),z:V.z,h:V.h,pitch:V.pitch,roll:V.roll,ws:V.wheelSpin,sv:V.steerVis}:null});
 }
 
@@ -832,7 +854,7 @@ function step(dt){
   if(stationMsgT>0){stationMsgT-=dt;if(stationMsgT<=0)hidePrompt();}
   for(const V of [...vehicles])updateVehicle(V,dt);
   if(P.vehicle)updateDashboard(P.vehicle,dt);
-  updatePerson(dt);updateProps(dt);updateAnimals(dt);updateWeather(dt);updateSurvival(dt);
+  updateKo(dt);updatePerson(dt);updateProps(dt);updateAnimals(dt);updateWeather(dt);updateSurvival(dt);
   Net.update(dt);netSend(dt);
   manageChunks(false,P.vehicle?P.vehicle.z:P.z);
   saveT+=dt;if(saveT>20){saveT=0;saveGame();}

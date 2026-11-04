@@ -6,13 +6,24 @@ const Net=(()=>{
   let role='off',peer=null,conns=[],hostConn=null,myId=null,code=null,name='Player',col=0xd9822b,onWelcome=null,statusCb=()=>{};
   const remotes=new Map(); // id -> {name,col,person,tag,veh:{key,C},cur,tgt,last}
   const COLS=[0xd9822b,0x2f80ed,0x27ae60,0x9b51e0,0xeb5757,0xf2c94c];
+  // ICE servers: Google STUN always; a TURN relay (needed when a phone is on mobile data) if one is set up in js/config.js
+  let iceCache=null;
+  async function iceServers(){
+    if(iceCache)return iceCache;
+    const list=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}];
+    const cfg=window.ER_CONFIG||{};
+    try{if(cfg.meteredApp&&cfg.meteredKey){const r=await fetch(`https://${cfg.meteredApp}.metered.live/api/v1/turn/credentials?apiKey=${cfg.meteredKey}`);if(r.ok)list.push(...(await r.json()));}}catch(e){}
+    if(cfg.turn)list.push(...cfg.turn);
+    iceCache=list;return list;
+  }
+  let hitCb=()=>{},koCb=()=>{};
   function loadLib(){return new Promise((res,rej)=>{if(window.Peer)return res();const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';s.onload=()=>res();s.onerror=()=>rej(new Error('Could not load the multiplayer library'));document.head.appendChild(s);});}
   const mkCode=()=>Array.from({length:5},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ'[(Math.random()*24)|0]).join('');
   function status(t){statusCb(t);}
   async function host(playerName,cb){
-    name=playerName||'Host';await loadLib();role='host';col=COLS[0];
+    name=playerName||'Host';await loadLib();const ice=await iceServers();role='host';col=COLS[0];
     return new Promise((res,rej)=>{
-      const tryOpen=(n)=>{code=mkCode();peer=new Peer(PREFIX+code);
+      const tryOpen=(n)=>{code=mkCode();peer=new Peer(PREFIX+code,{config:{iceServers:ice}});
         peer.on('open',id=>{myId=id;status('Room '+code);res(code);});
         peer.on('error',e=>{if(e.type==='unavailable-id'&&n<5){peer.destroy();tryOpen(n+1);}else{status('Multiplayer error: '+e.type);rej(e);}});
         peer.on('connection',c=>{
@@ -27,19 +38,25 @@ const Net=(()=>{
     if(d.t==='hello'){c.pid=d.id;c.pname=d.name;const pcol=COLS[(conns.indexOf(c)+1)%COLS.length];
       c.send({t:'welcome',col:pcol,world:onWelcome.world(),you:d.id});toast(`👋 ${d.name} joined`);return;}
     if(d.t==='st'){applyState(d);for(const o of conns)if(o!==c&&o.open)o.send(d);}
+    if(d.t==='hit'){if(d.to===myId)hitCb(d);else{const o=conns.find(x=>x.pid===d.to);if(o&&o.open)o.send(d);}}
+    if(d.t==='ko'){koCb(d);for(const o of conns)if(o!==c&&o.open)o.send(d);}
   }
   async function join(roomCode,playerName,welcomeCb){
-    name=playerName||'Player';await loadLib();role='guest';code=roomCode.toUpperCase().trim();
-    return new Promise((res,rej)=>{
-      peer=new Peer();
-      peer.on('open',id=>{myId=id;hostConn=peer.connect(PREFIX+code,{reliable:false});
-        const t=setTimeout(()=>{rej(new Error('Could not find that room'));},12000);
+    name=playerName||'Player';await loadLib();const ice=await iceServers();role='guest';code=roomCode.toUpperCase().trim();
+    return new Promise((res,rej)=>{let welcomed=false;
+      peer=new Peer({config:{iceServers:ice}});
+      peer.on('open',id=>{myId=id;hostConn=peer.connect(PREFIX+code,{reliable:true,serialization:'json'});
+        const fail=()=>{clearTimeout(t);role='off';try{peer.destroy();}catch(e){}rej(new Error("Found the room but couldn't connect to it. This usually happens when one of you is on mobile data: put both devices on the same Wi-Fi and try again."));};
+        const t=setTimeout(fail,20000);
+        hostConn.on('iceStateChanged',st=>{if(st==='failed'&&!welcomed)fail();});
         hostConn.on('open',()=>hostConn.send({t:'hello',id:myId,name}));
         hostConn.on('data',d=>{
-          if(d.t==='welcome'){clearTimeout(t);col=d.col;welcomeCb(d.world);status('Room '+code);res();}
+          if(d.t==='welcome'){welcomed=true;clearTimeout(t);col=d.col;welcomeCb(d.world);status('Room '+code);res();}
           else if(d.t==='full'){clearTimeout(t);rej(new Error('That room is full'));}
           else if(d.t==='st')applyState(d);
           else if(d.t==='bye')dropRemote(d.id);
+          else if(d.t==='hit'&&d.to===myId)hitCb(d);
+          else if(d.t==='ko')koCb(d);
         });
         hostConn.on('close',()=>{toast('Lost connection to the host','warn');status('Disconnected');role='off';for(const id of [...remotes.keys()])dropRemote(id);});
       });
@@ -78,15 +95,20 @@ const Net=(()=>{
         c.v=null;
         if(r.person.group.parent!==scene)scene.add(r.person.group);
         if(r.veh){scene.remove(r.veh.C.group);r.veh=null;}
-        r.person.group.position.set(c.x,c.y-(t.cr?.38:0),c.z);r.person.group.rotation.set(0,c.h,0);
-        pose(r.person,t.cr?'crouch':t.hold?'carry':'walk',t.ph,t.amp);
+        r.person.group.position.set(c.x,c.y-(t.cr?.38:0)+(t.ko?.15:0),c.z);r.person.group.rotation.set(t.ko?-1.45:0,c.h,0);
+        const hk=t.hold&&typeof t.hold==='object'?JSON.stringify(t.hold):'';
+        if(r.holdKey!==hk){r.holdKey=hk;r.person.hold.clear();if(hk){try{const o=makeFromDesc(t.hold);placeInHand(r.person.hold,t.hold.k,o);}catch(e){}}}
+        pose(r.person,t.cr?'crouch':hk&&isGun(t.hold.k)?'aim':hk?'carry':'walk',t.ph,t.amp);
         r.tag.position.set(c.x,c.y+(t.cr?1.7:2.1),c.z);
       }
       if(performance.now()-r.last>15000)dropRemote(id);
     }
   }
+  function sendHit(to,dmg){const d={t:'hit',to,from:myId,name,dmg};if(role==='host'){const o=conns.find(x=>x.pid===to);if(o&&o.open)o.send(d);}else broadcast(d);}
+  function sendKo(by,byName){broadcast({t:'ko',id:myId,name,by,byName});}
+  function targets(){const out=[];for(const[id,r]of remotes){const c=r.cur;if(!c||c.v)continue;out.push({id,name:r.name,x:c.x,y:c.y,z:c.z,cr:r.tgt&&r.tgt.cr});}return out;}
   function circles(){const out=[];for(const r of remotes.values()){const c=r.cur;if(!c)continue;
     if(c.v){const f={x:Math.sin(c.v.h),z:Math.cos(c.v.h)};for(const o of[-1.3,0,1.3])out.push([c.v.x+f.x*o,c.v.z+f.z*o,.95]);}else out.push([c.x,c.z,.3]);}return out;}
-  return {host,join,leave,broadcast,update,circles,get role(){return role;},get code(){return code;},get id(){return myId;},get name(){return name;},get col(){return col;},get count(){return remotes.size;},
+  return {host,join,leave,broadcast,update,circles,sendHit,sendKo,targets,set onHit(f){hitCb=f;},set onKo(f){koCb=f;},get role(){return role;},get code(){return code;},get id(){return myId;},get name(){return name;},get col(){return col;},get count(){return remotes.size;},
     set onWelcome(o){onWelcome=o;},set onStatus(f){statusCb=f;},remotes};
 })();
