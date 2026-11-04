@@ -1,0 +1,7 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/endlessroad/public_html/play.endlessroad.co.za/
+    - /bin/mkdir -p $DEPLOYPATH/js
+    - /bin/cp index.html style.css $DEPLOYPATH
+    - /bin/cp -R js/. $DEPLOYPATH/js/
