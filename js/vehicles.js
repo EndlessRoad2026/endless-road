@@ -96,58 +96,6 @@ function initCarMats(){
 const paintCache={};
 function paintMat(color){const k=color;if(!paintCache[k])paintCache[k]=new THREE.MeshPhysicalMaterial({color:lin(color),roughness:.35,metalness:.4,clearcoat:.8,clearcoatRoughness:.15});return paintCache[k];}
 
-// ---------------------------------------------------------------------- wheel
-function makeWheel(){
-  const w=new THREE.Group();
-  part(w,CG.tyre,CARMAT.tyre,0,0,0,1,1,1);
-  for(const sx of[.11,-.11]){part(w,CG.shoulder,CARMAT.rubber,sx,0,0,1,1,1);const sw=part(w,CG.sidewall,CARMAT.rubber,sx*1.05,0,0,1,1,1);sw.material=CARMAT.rubber;}
-  part(w,CG.rim,CARMAT.rimDark,0,0,0,1,1,1);
-  for(const sx of[1,-1]){part(w,CG.dish,CARMAT.rim,sx*.1,0,0,1,1,1);part(w,CG.hub,CARMAT.chrome,sx*.13,0,0,1,1,1);
-    for(let k=0;k<5;k++){const a=k/5*Math.PI*2;part(w,CG.lug,CARMAT.chrome,sx*.14,Math.cos(a)*.1,Math.sin(a)*.1,1,1,1);}}
-  w.userData.type='wheel';w.userData.home={p:[0,0,0],r:[0,0,0]};return w;
-}
-
-// ---------------------------------------------------------------------- engine bay pieces
-function makeBattery(){
-  const g=new THREE.Group();const L=CARMAT.battLabel,T=CARMAT.battTop;
-  const b=new THREE.Mesh(G.box,[L,L,T,T,L,L]);b.scale.set(.26,.2,.17);b.castShadow=true;b.userData.shared=true;g.add(b);
-  part(g,G.cyl,CARMAT.termRed,.08,.115,0,.018,.03,.018);part(g,G.cyl,CARMAT.black,-.08,.115,0,.018,.03,.018);
-  part(g,G.box,CARMAT.black,0,.105,0,.12,.012,.03);
-  g.userData.type='battery';return g;
-}
-function makeRadiator(){
-  const g=new THREE.Group();
-  part(g,G.box,CARMAT.engineDark,0,0,0,1.15,.44,.05);
-  part(g,G.plane,CARMAT.fins,0,0,.03,1.0,.36,1);
-  part(g,G.plane,CARMAT.fins,0,0,-.03,1.0,.36,1,0,Math.PI,0);
-  part(g,G.box,CARMAT.engine,-.55,0,0,.08,.46,.09);part(g,G.box,CARMAT.engine,.55,0,0,.08,.46,.09);
-  part(g,G.cyl,CARMAT.termRed,.4,.25,0,.035,.04,.035);
-  g.userData.type='radiator';return g;
-}
-function addEngine(g,front){
-  // front=true: engine in the nose (sedan/pickup); false: rear engine (buggy)
-  const z=front?1.42:-1.45,dir=front?1:-1;
-  part(g,G.box,CARMAT.engine,0,.58,z,.5,.3,.55);
-  part(g,G.box,CARMAT.engineDark,0,.42,z,.46,.08,.5);
-  for(const sx of[1,-1]){part(g,G.box,CARMAT.valve,sx*.2,.79,z,.16,.1,.52,0,0,-sx*.45);part(g,G.box,CARMAT.engineDark,sx*.33,.62,z,.06,.1,.46);}
-  part(g,G.box,CARMAT.engine,0,.8,z,.22,.1,.45);
-  part(g,G.cyl,CARMAT.black,0,.9,z,.21,.08,.21);part(g,G.cyl,CARMAT.chrome,0,.945,z,.03,.02,.03);
-  part(g,G.cyl,CARMAT.engine,.3,.72,z+dir*.3,.07,.1,.07,0,0,Math.PI/2);
-  const belt=part(g,new THREE.TorusGeometry(.1,.012,6,20),CARMAT.hose,0,.62,z+dir*.31,1,1,1,0,Math.PI/2,0);belt.userData.shared=false;
-  part(g,G.cyl,CARMAT.engineDark,0,.62,z+dir*.31,.07,.04,.07,0,0,Math.PI/2);
-  // fan
-  part(g,G.cyl,CARMAT.engineDark,0,.64,z+dir*.42,.05,.04,.05,Math.PI/2,0,0);
-  for(let k=0;k<4;k++)part(g,G.box,CARMAT.engineDark,0,.64,z+dir*.43,.05,.34,.012,0,0,k*Math.PI/4);
-  // hoses to radiator
-  beam(g,G.cyl,CARMAT.hose,[-.3,.75,z+dir*.63],[-.18,.72,z+dir*.2],.035,.035,'y');
-  beam(g,G.cyl,CARMAT.hose,[.3,.5,z+dir*.63],[.2,.5,z+dir*.2],.035,.035,'y');
-  if(front){
-    part(g,G.cyl,CARMAT.black,-.42,.75,.96,.12,.08,.12,Math.PI/2,0,0);
-    part(g,G.box,CARMAT.washer,-.52,.62,1.82,.14,.2,.12);
-    part(g,G.box,CARMAT.black,.45,.64,1.02,.14,.08,.1);
-  }
-}
-
 // ---------------------------------------------------------------------- dashboard
 function addDashboard(g,C,opts={}){
   const dx=opts.driverX??-.38,z=opts.z??.62,mini=!!opts.mini;
@@ -202,56 +150,48 @@ function addDashboard(g,C,opts={}){
 }
 
 // ---------------------------------------------------------------------- vehicle builder
+// Slots own the position a part sits at (home), so any part fits any vehicle of the right kind.
+function attachTo(s,obj){s.parent.add(obj);const h=s.home;obj.position.set(...h.p);obj.rotation.set(...(h.r||[0,0,0]));obj.scale.setScalar(h.s||1);obj.visible=true;s.obj=obj;}
 function makeVehicle(type='sedan',opts={}){
-  const rusty=!!opts.rusty;
-  const paint=rusty?CARMAT.rust:paintMat(opts.color??PAINTS.blue);
+  const rusty=!!opts.rusty,pdesc=rusty?'rust':(opts.color??PAINTS.blue);
+  const paint=paintOf(pdesc);
   const glassOn=!opts.noGlass;
   const g=new THREE.Group();
-  const C={type,group:g,slots:{},pivots:{},paint,tails:[],spec:VTYPES[type]};
-  const slot=(name,stype,point,obj,hinge,open,needsHood)=>{ // hinge: {p,axis,angle} or null
+  const C={type,group:g,slots:{},pivots:{},paint,pdesc,tails:[],spec:VTYPES[type]};
+  const slot=(name,stype,point,home,obj,hinge,needsHood)=>{
     let parent=g,h=null;
     if(hinge){h=new THREE.Group();h.position.set(...hinge.p);g.add(h);parent=h;}
-    C.slots[name]={name,type:stype,point,parent,hinge:h,axis:hinge?hinge.axis:null,angle:hinge?hinge.angle:0,open:false,openAmt:0,obj,needsHood};
-    if(obj)attachHome(obj,parent);
+    const s={name,type:stype,point,parent,hinge:h,axis:hinge?hinge.axis:null,angle:hinge?hinge.angle:0,open:false,openAmt:0,obj:null,needsHood,home};
+    C.slots[name]=s;if(obj)attachTo(s,obj);return s;
   };
-  if(type==='buggy'){buildBuggy(g,C,paint,slot);return C;}
+  const mk=d=>makeFromDesc(d);
+  if(type==='buggy'){buildBuggy(g,C,paint,slot,mk,opts);return C;}
 
-  // ---- shared front & cabin (sedan, pickup)
   for(const[x,geo]of[[.9,CG.fenderF],[-.7,CG.fenderF]]){const m=sharedMesh(geo,paint);m.position.x=x;g.add(m);}
   part(g,G.box,paint,0,.6,2.2,1.42,.34,.08);
   part(g,G.box,CARMAT.grille,0,.66,2.245,1.05,.26,.02);
   part(g,G.box,CARMAT.chrome,0,.66,2.255,1.1,.02,.02);
   part(g,G.box,CARMAT.chrome,0,.42,2.3,1.92,.13,.14);
   part(g,G.box,CARMAT.plate,0,.42,2.38,.42,.11,.01);
-  for(const sx of[1,-1]){
-    part(g,CG.light,CARMAT.head,sx*.62,.7,2.25,1,1,1);part(g,CG.ring,CARMAT.chrome,sx*.62,.7,2.285,1,1,1);
-    part(g,G.box,CARMAT.amber,sx*.82,.52,2.26,.12,.06,.03);
-    // side mirror on the body
-    part(g,G.box,CARMAT.black,sx*.97,1.02,.72,.06,.03,.06);part(g,G.box,CARMAT.black,sx*1.03,1.08,.72,.04,.11,.16);
-    part(g,G.plane,CARMAT.mirror,sx*1.03,1.08,.635,.035,.1,1,0,Math.PI,0);
-  }
+  for(const sx of[1,-1]){part(g,CG.light,CARMAT.head,sx*.62,.7,2.25,1,1,1);part(g,CG.ring,CARMAT.chrome,sx*.62,.7,2.285,1,1,1);part(g,G.box,CARMAT.amber,sx*.82,.52,2.26,.12,.06,.03);}
   part(g,G.box,CARMAT.carpet,0,.4,-.05,1.66,.06,1.86);
   part(g,G.box,paint,.86,.36,-.05,.08,.08,1.8);part(g,G.box,paint,-.86,.36,-.05,.08,.08,1.8);
-  part(g,G.box,CARMAT.engineDark,0,.4,1.52,1.4,.05,1.3);                 // engine bay floor
-  for(const sx of[1,-1])part(g,G.box,CARMAT.engineDark,sx*.68,.66,1.52,.04,.5,1.25); // inner fenders
-  part(g,G.box,CARMAT.engineDark,0,.66,.9,1.36,.5,.04);                  // firewall
-  part(g,G.box,CARMAT.engineDark,0,.92,.88,1.42,.08,.08);                // cowl
-  for(const sx of[-.32,.32])part(g,G.box,CARMAT.black,sx,.975,.86,.5,.015,.02,0,sx>0?-.12:.12,0); // wipers
-  addEngine(g,true);
-  // chassis underside
+  part(g,G.box,CARMAT.engineDark,0,.4,1.52,1.4,.05,1.3);
+  for(const sx of[1,-1])part(g,G.box,CARMAT.engineDark,sx*.68,.66,1.52,.04,.5,1.25);
+  part(g,G.box,CARMAT.engineDark,0,.66,.9,1.36,.5,.04);
+  part(g,G.box,CARMAT.engineDark,0,.92,.88,1.42,.08,.08);
+  for(const sx of[-.32,.32])part(g,G.box,CARMAT.black,sx,.975,.86,.5,.015,.02,0,sx>0?-.12:.12,0);
+  part(g,G.box,CARMAT.engineDark,0,.42,1.45,.3,.06,.3);   // engine mount, visible when the engine is out
   for(const sx of[.5,-.5])part(g,G.box,CARMAT.engineDark,sx,.3,0,.1,.1,4.0);
   addDashboard(g,C,{driverX:-.38,z:.62});
-  for(const sx of[-.38,.38]){part(g,G.box,CARMAT.seat,sx,.5,-.12,.5,.13,.5);part(g,G.box,CARMAT.seat,sx,.84,-.4,.5,.6,.11,-.15);part(g,G.box,CARMAT.seat,sx,1.2,-.44,.26,.14,.1,-.15);}
   for(const sx of[1,-1]){beam(g,G.box,paint,[sx*.8,.96,.84],[sx*.72,1.42,.3],.07,.06);}
   if(glassOn)beam(g,G.box,CARMAT.glass,[0,.96,.83],[0,1.42,.3],1.42,.012);
-  // rear-view mirror & sun visors
   part(g,G.box,CARMAT.black,0,1.37,.26,.15,.045,.02);part(g,G.plane,CARMAT.mirror,0,1.37,.248,.135,.035,1,0,Math.PI,0);
   for(const sx of[-.38,.38])part(g,G.box,CARMAT.headliner,sx,1.402,.22,.36,.015,.14);
-
-  // ---- rear
+  for(const sx of[-.38,.38])part(g,G.box,CARMAT.engineDark,sx,.43,-.12,.34,.02,.34); // seat rails
   for(const[x,geo]of[[.9,CG.fenderR],[-.7,CG.fenderR]]){const m=sharedMesh(geo,paint);m.position.x=x;g.add(m);}
   part(g,G.box,CARMAT.chrome,0,.42,-2.3,1.92,.13,.14);
-  part(g,G.cyl,CARMAT.chrome,.6,.32,-2.3,.035,.2,.035,Math.PI/2,0,0); // exhaust
+  part(g,G.cyl,CARMAT.chrome,.6,.32,-2.3,.035,.2,.035,Math.PI/2,0,0);
   if(type==='sedan'){
     part(g,G.box,paint,0,.66,-2.2,1.42,.48,.08);
     part(g,G.box,CARMAT.plate,0,.62,-2.245,.42,.11,.01);
@@ -264,62 +204,44 @@ function makeVehicle(type='sedan',opts={}){
       for(const sx of[1,-1]){const q=sharedMesh(CG.qGlass,CARMAT.glass);q.position.x=sx>0?.86:-.845;q.castShadow=false;g.add(q);}}
     part(g,G.box,CARMAT.seat,0,.5,-.82,1.5,.13,.4);part(g,G.box,CARMAT.seat,0,.82,-1.02,1.5,.55,.1,-.1);
     part(g,G.box,CARMAT.carpet,0,.42,-1.55,1.38,.05,1.15);
-    const trunk=new THREE.Group();part(trunk,G.box,paint,0,0,0,1.42,.05,1.2);part(trunk,G.box,CARMAT.chrome,0,.0,-.58,.3,.04,.03);
-    trunk.userData.type='trunk';trunk.userData.home={p:[0,-.025,-.6],r:[-.025,0,0]};
-    slot('trunk','trunk',[0,1.0,-2.45],trunk,{p:[0,.97,-.95],axis:'x',angle:1.2});
+    slot('trunk','trunk',[0,1.0,-2.45],{p:[0,-.025,-.6],r:[-.025,0,0]},mk({k:'trunk',p:pdesc}),{p:[0,.97,-.95],axis:'x',angle:1.2});
   } else {
-    // pickup: short cab, rear window wall, load bed, drop-down tailgate
     part(g,G.box,paint,0,1.44,-.25,1.5,.05,1.1);
     part(g,G.box,CARMAT.headliner,0,1.412,-.25,1.44,.01,1.04);
     part(g,G.box,paint,0,1.02,-.86,1.6,.14,.07);part(g,G.box,paint,0,1.4,-.86,1.6,.08,.07);
     for(const sx of[1,-1])part(g,G.box,paint,sx*.73,1.21,-.86,.16,.38,.07);
     if(glassOn)part(g,G.box,CARMAT.glass,0,1.21,-.86,1.3,.32,.012);
     if(glassOn)for(const sx of[1,-1]){const q=sharedMesh(CG.qGlass,CARMAT.glass);q.position.x=sx>0?.86:-.845;q.scale.z=.6;q.position.z=-.38;q.castShadow=false;g.add(q);}
-    part(g,G.box,CARMAT.engineDark,0,.58,-1.6,1.66,.05,1.38);           // bed floor
+    part(g,G.box,CARMAT.engineDark,0,.58,-1.6,1.66,.05,1.38);
     for(let k=-3;k<=3;k++)part(g,G.box,CARMAT.engine,k*.22,.615,-1.6,.04,.02,1.36);
     for(const sx of[1,-1]){part(g,G.box,paint,sx*.85,.85,-1.6,.06,.52,1.42);part(g,G.box,CARMAT.chrome,sx*.85,1.12,-1.6,.1,.03,1.44);
       C.tails.push(part(g,G.box,CARMAT.tail,sx*.84,.85,-2.31,.1,.3,.03));}
     part(g,G.box,paint,0,.85,-.93,1.66,.52,.05);
     part(g,G.box,CARMAT.plate,0,.42,-2.38,.42,.11,.01);
-    const tg=new THREE.Group();part(tg,G.box,paint,0,0,0,1.62,.5,.05);part(tg,G.box,CARMAT.chrome,0,.15,-.03,.24,.05,.02);
-    tg.userData.type='tailgate';tg.userData.home={p:[0,.26,0],r:[0,0,0]};
-    slot('tailgate','tailgate',[0,.85,-2.55],tg,{p:[0,.57,-2.28],axis:'x',angle:-1.5});
+    slot('tailgate','tailgate',[0,.85,-2.55],{p:[0,.26,0]},mk({k:'tailgate',p:pdesc}),{p:[0,.57,-2.28],axis:'x',angle:-1.5});
   }
-
-  // ---- removable / hinged parts
-  const hood=new THREE.Group();part(hood,G.box,paint,0,0,0,1.42,.05,1.38);part(hood,G.box,CARMAT.chrome,0,.03,.6,.08,.02,.2);
-  part(hood,G.box,CARMAT.engineDark,0,-.03,0,1.2,.01,1.2);
-  hood.userData.type='hood';hood.userData.home={p:[0,-.025,.67],r:[.074,0,0]};
-  slot('hood','hood',[0,1.0,2.4],hood,{p:[0,.96,.86],axis:'x',angle:-1.15});
-  const mkDoor=(side)=>{const d=new THREE.Group();
-    d.add(sharedMesh(CG.door,paint));
-    if(glassOn){const gl=sharedMesh(CG.doorGlass,CARMAT.glass);gl.position.x=-.03;gl.castShadow=false;d.add(gl);}
-    const fr=sharedMesh(CG.doorFrame,paint);fr.position.x=-.01;d.add(fr);
-    part(d,G.box,CARMAT.chrome,-.035,.965,-.05,.09,.025,1.78);
-    part(d,G.box,CARMAT.chrome,side>0?.015:-.085,.82,-.6,.03,.04,.16);
-    part(d,G.box,CARMAT.seat,side>0?-.09:.02,.66,-.05,.03,.5,1.7);
-    part(d,G.box,CARMAT.plastic,side>0?-.11:.04,.72,-.2,.05,.03,.4);
-    d.userData.type=side>0?'doorL':'doorR';d.userData.home={p:[0,0,-.85],r:[0,0,0]};return d;};
-  slot('doorL','doorL',[1.2,.85,.45],mkDoor(1),{p:[.9,0,.85],axis:'y',angle:-1.1});
-  slot('doorR','doorR',[-1.2,.85,.45],mkDoor(-1),{p:[-.82,0,.85],axis:'y',angle:1.1});
-  const bat=makeBattery();bat.userData.home={p:[.46,.6,1.85],r:[0,0,0]};slot('battery','battery',[.46,.85,1.85],bat,null,false,true);
-  const rad=makeRadiator();rad.userData.home={p:[0,.64,2.08],r:[0,0,0]};slot('radiator','radiator',[0,.92,2.12],rad,null,false,true);
-  addWheels(g,C,.78,.36,1.35,1);
+  slot('hood','hood',[0,1.0,2.4],{p:[0,-.025,.67],r:[.074,0,0]},mk({k:'hood',p:pdesc}),{p:[0,.96,.86],axis:'x',angle:-1.15});
+  slot('doorL','doorL',[1.2,.85,.45],{p:[0,0,-.85]},mk({k:'doorL',p:pdesc,g:glassOn?1:0}),{p:[.9,0,.85],axis:'y',angle:-1.1});
+  slot('doorR','doorR',[-1.2,.85,.45],{p:[0,0,-.85]},mk({k:'doorR',p:pdesc,g:glassOn?1:0}),{p:[-.82,0,.85],axis:'y',angle:1.1});
+  slot('engine','engine',[0,.98,1.45],{p:[0,.58,1.42]},mk({k:'engine',v:opts.engine||'V6'}),null,true);
+  slot('battery','battery',[.46,.85,1.85],{p:[.46,.6,1.85]},mk({k:'battery'}),null,true);
+  slot('radiator','radiator',[0,.92,2.12],{p:[0,.64,2.08]},mk({k:'radiator'}),null,true);
+  slot('seatD','seat',[-.38,.9,-.1],{p:[-.38,.5,-.12]},mk({k:'seat',v:opts.seat||'standard'}));
+  slot('seatP','seat',[.38,.9,-.1],{p:[.38,.5,-.12]},mk({k:'seat',v:opts.seat||'standard'}));
+  addWheels(g,C,.78,.36,1.35,1,opts);
   return C;
 }
-function addWheels(g,C,ax,ay,az,scale){
+function addWheels(g,C,ax,ay,az,scale,opts={}){
   const pts={wheelFL:[ax,ay,az],wheelFR:[-ax,ay,az],wheelRL:[ax,ay,-az],wheelRR:[-ax,ay,-az]};
   for(const[name,p]of Object.entries(pts)){
     const piv=new THREE.Group();piv.position.set(...p);piv.scale.setScalar(scale);g.add(piv);C.pivots[name]=piv;
-    const w=makeWheel();
-    C.slots[name]={name,type:'wheel',point:[Math.sign(p[0])*(Math.abs(p[0])+.47*scale),.4,p[2]],parent:piv,hinge:null,obj:w,open:false,openAmt:0};
-    attachHome(w,piv);
+    const s={name,type:'wheel',point:[Math.sign(p[0])*(Math.abs(p[0])+.47*scale),.4,p[2]],parent:piv,hinge:null,obj:null,open:false,openAmt:0,home:{p:[0,0,0]}};
+    C.slots[name]=s;attachTo(s,makeFromDesc({k:'wheel',rim:opts.rim||'steel',tyre:opts.tyre||'road'}));
   }
 }
-function buildBuggy(g,C,paint,slot){
-  // tube-frame dune buggy: open, rear engine, big wheels
+function buildBuggy(g,C,paint,slot,mk,opts){
   part(g,G.box,CARMAT.engineDark,0,.44,0,1.3,.06,3.2);
-  part(g,G.box,paint,0,.6,1.55,1.3,.3,.6,-.35,0,0);                 // nose
+  part(g,G.box,paint,0,.6,1.55,1.3,.3,.6,-.35,0,0);
   part(g,G.box,paint,0,.78,1.15,1.2,.06,.5,.12,0,0);
   for(const sx of[1,-1]){part(g,G.box,paint,sx*.66,.58,.1,.06,.28,2.2);}
   const T=(a,b)=>beam(g,CG.tube,CARMAT.cage,a,b,.035,.035,'y');
@@ -333,28 +255,38 @@ function buildBuggy(g,C,paint,slot){
   T([-.55,1.5,-.65],[.55,.48,-.85]);
   part(g,G.box,CARMAT.chrome,0,.5,1.85,1.4,.08,.08);
   for(const sx of[1,-1]){part(g,CG.light,CARMAT.head,sx*.4,1.46,.2,.7,.7,1);C.tails.push(part(g,G.box,CARMAT.tail,sx*.5,.62,-2.0,.12,.08,.03));}
-  for(const sx of[-.36,.36]){part(g,G.box,CARMAT.seat,sx,.55,-.2,.46,.12,.46);part(g,G.box,CARMAT.seat,sx,.9,-.47,.46,.62,.12,-.2);}
-  addEngine(g,false);
   part(g,G.cyl,CARMAT.chrome,.25,.7,-2.0,.05,.4,.05,Math.PI/2.4,0,0);part(g,G.cyl,CARMAT.chrome,-.25,.7,-2.0,.05,.4,.05,Math.PI/2.4,0,0);
+  part(g,G.box,CARMAT.engineDark,0,.48,-1.45,.4,.06,.4);
   addDashboard(g,C,{driverX:-.36,z:.62,mini:true});
-  const bat=makeBattery();bat.userData.home={p:[.42,.6,-.95],r:[0,0,0]};slot('battery','battery',[.75,.8,-.95],bat,null);
-  const rad=makeRadiator();rad.scale.setScalar(.8);rad.userData.home={p:[0,.75,-2.0],r:[0,0,0]};slot('radiator','radiator',[0,.9,-2.35],rad,null);
-  addWheels(g,C,.92,.42,1.32,1.17);
+  slot('seatD','seat',[-.36,.9,-.2],{p:[-.36,.55,-.2]},mk({k:'seat',v:opts.seat||'racing'}));
+  slot('seatP','seat',[.36,.9,-.2],{p:[.36,.55,-.2]},mk({k:'seat',v:opts.seat||'racing'}));
+  slot('engine','engine',[0,1.0,-1.45],{p:[0,.62,-1.45],r:[0,Math.PI,0]},mk({k:'engine',v:opts.engine||'I4'}));
+  slot('battery','battery',[.75,.8,-.95],{p:[.42,.6,-.95]},mk({k:'battery'}));
+  slot('radiator','radiator',[0,.9,-2.35],{p:[0,.75,-2.0],s:.8},mk({k:'radiator'}));
+  addWheels(g,C,.92,.42,1.32,1.17,opts);
 }
-function attachHome(obj,parent){parent.add(obj);const h=obj.userData.home;obj.position.set(...h.p);obj.rotation.set(...h.r);obj.scale.set(1,1,1);obj.visible=true;}
-function missing(C){const m={wheels:0,panels:0,doors:0,hood:false,battery:false,radiator:false,list:[]};
-  for(const s of Object.values(C.slots)){if(!s.obj){m.list.push(s.name);
-    if(s.type==='wheel')m.wheels++;else if(s.type==='battery')m.battery=true;else if(s.type==='radiator')m.radiator=true;
-    else{m.panels++;if(s.type.startsWith('door'))m.doors++;if(s.type==='hood')m.hood=true;}}}return m;}
+function missing(C){const m={wheels:0,panels:0,doors:0,hood:false,battery:false,radiator:false,engine:false,seatD:false,bare:0,list:[]};
+  for(const s of Object.values(C.slots)){
+    if(!s.obj){m.list.push(s.name);
+      if(s.type==='wheel')m.wheels++;else if(s.type==='battery')m.battery=true;else if(s.type==='radiator')m.radiator=true;else if(s.type==='engine')m.engine=true;
+      else if(s.type==='seat'){if(s.name==='seatD')m.seatD=true;}
+      else{m.panels++;if(s.type.startsWith('door'))m.doors++;if(s.type==='hood')m.hood=true;}}
+    else if(s.type==='wheel'&&!s.obj.userData.tyreObj)m.bare++;}
+  return m;}
 function hoodAccess(C){const h=C.slots.hood;return !h||!h.obj||h.open;}
-function slotTypeFits(slotType,kind){return slotType===kind;}
+// grip factors from the tyres that are fitted
+function tyreFactors(C){let n=0,road=0,off=0,ice=0,mud=0;
+  for(const nm of['wheelFL','wheelFR','wheelRL','wheelRR']){const s=C.slots[nm];if(!s||!s.obj)continue;const t=s.obj.userData.tyreObj;
+    const T=t?TYRES[t.userData.desc.v]||TYRES.road:{road:.45,off:.45,ice:.3,mud:.4};road+=T.road;off+=T.off;ice+=T.ice;mud+=T.mud;n++;}
+  return n?{road:road/n,off:off/n,ice:ice/n,mud:mud/n}:{road:1,off:1,ice:1,mud:1};}
+function engineSpec(C){const e=C.slots.engine&&C.slots.engine.obj;return e?ENGINES[e.userData.desc.v]||ENGINES.V6:null;}
 
 // ---------------------------------------------------------------------- person
-function makePerson(){
+function makePerson(shirtCol=0xd9822b,capCol=0x2c6e49){
   const g=new THREE.Group();
   const fab=fabricTex();
-  const skin=std(0xc98e62,{roughness:.6}),shirt=std(0xd9822b,{roughness:.9,map:fab.map,normalMap:fab.normal}),pants=std(0x34465e,{roughness:.9,map:fab.map,normalMap:fab.normal}),
-    shoe=std(0x2a221c,{roughness:.7}),hair=std(0x2b1a10,{roughness:.9}),cap=std(0x2c6e49,{roughness:.8});
+  const skin=std(0xc98e62,{roughness:.6}),shirt=std(shirtCol,{roughness:.9,map:fab.map,normalMap:fab.normal}),pants=std(0x34465e,{roughness:.9,map:fab.map,normalMap:fab.normal}),
+    shoe=std(0x2a221c,{roughness:.7}),hair=std(0x2b1a10,{roughness:.9}),cap=std(capCol,{roughness:.8});
   const limb=(parent,x,y,z,r1,r2,len,mat)=>{const piv=new THREE.Group();piv.position.set(x,y,z);parent.add(piv);
     const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,len,12),mat);m.castShadow=true;m.position.y=-len/2;piv.add(m);
     const j=new THREE.Mesh(G.sphere,mat);j.scale.setScalar(r1);j.castShadow=true;piv.add(j);return piv;};
@@ -381,6 +313,10 @@ function makePerson(){
 function pose(P,mode,ph,amp){
   if(mode==='sit'){P.hipL.rotation.x=P.hipR.rotation.x=-1.45;P.kneeL.rotation.x=P.kneeR.rotation.x=1.3;
     P.shL.rotation.x=P.shR.rotation.x=-1.0;P.elL.rotation.x=P.elR.rotation.x=-.45;P.shL.rotation.z=.1;P.shR.rotation.z=-.1;return;}
+  if(mode==='crouch'){const s=Math.sin(ph)*amp*.5;P.hipL.rotation.x=-1.05+s;P.hipR.rotation.x=-1.05-s;P.kneeL.rotation.x=P.kneeR.rotation.x=1.9;
+    P.shL.rotation.x=P.shR.rotation.x=-.5;P.elL.rotation.x=P.elR.rotation.x=-.6;P.shL.rotation.z=.1;P.shR.rotation.z=-.1;return;}
+  if(mode==='aim'){const s=Math.sin(ph)*amp;P.hipL.rotation.x=s;P.hipR.rotation.x=-s;P.kneeL.rotation.x=P.kneeR.rotation.x=Math.abs(s)*.6;
+    P.shR.rotation.x=-1.5;P.elR.rotation.x=0;P.shL.rotation.x=-1.35;P.elL.rotation.x=-.3;P.shL.rotation.z=-.4;P.shR.rotation.z=.05;return;}
   const s=Math.sin(ph)*amp;
   P.hipL.rotation.x=s;P.hipR.rotation.x=-s;
   P.kneeL.rotation.x=Math.max(0,-Math.sin(ph-.6))*amp*1.3;P.kneeR.rotation.x=Math.max(0,Math.sin(ph-.6))*amp*1.3;

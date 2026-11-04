@@ -164,7 +164,7 @@ function buildChunk(i){
   const far=i*CH,pFuel=Math.max(.1,.32-far/30000),pKit=Math.max(.06,.14-far/40000);
   if(i>0&&rnd()<pFuel)ch.pickups.push(makePickup('fuel',z0+rnd()*CH,(rnd()-.5)*5,group,`${i}:p0`));
   if(i>1&&rnd()<pKit)ch.pickups.push(makePickup('kit',z0+rnd()*CH,(rnd()-.5)*5,group,`${i}:p1`));
-  if(S.key==='jungle'&&rnd()<.35){const z=z0+rnd()*CH,side=rnd()<.5?-1:1,x=roadX(z)+side*(7+rnd()*4);addItem(ch,group,rnd()<.5?'bananas':'coconut',x,groundH(x,z)+.02,z,`${i}:fruit`);}
+  if(S.key==='jungle'&&rnd()<.35){const z=z0+rnd()*CH,side=rnd()<.5?-1:1,x=roadX(z)+side*(7+rnd()*4);addItem(ch,group,{k:rnd()<.5?'bananas':'coconut'},x,groundH(x,z)+.02,z,`${i}:fruit`);}
 
   if(houseSpot)buildHouse(ch,group,B,houseSpot,rnd);
   if(wreckSpot)buildWreck(ch,group,wreckSpot,rnd);
@@ -177,7 +177,7 @@ function buildChunk(i){
     B.add(G.box,M.pumpY,rx+8,roadH(stZ)+5,stZ-18,3,1.4,.2);B.add(G.box,M.wall,rx+8,roadH(stZ)+2.2,stZ-18,.2,4.4,.2);
     ch.station={x:rx+12,z:stZ};
     ch.boxes.push({x0:sx+3,x1:sx+9,z0:stZ-5,z1:stZ+5});
-    addItem(ch,group,S.foods[0],sx+2.6,y+.1,stZ+1,`${i}:snack`);
+    addItem(ch,group,{k:S.foods[0]},sx+2.6,y+.1,stZ+1,`${i}:snack`);
   }
   B.build(group);
   scene.add(group);
@@ -194,39 +194,24 @@ function makePickup(type,z,off,group,id){
   const p={type,x,z,mesh:g,taken:taken.has(id),baseY:y,id};if(p.taken)g.visible=false;return p;
 }
 
-// ---------------------------------------------------------------------- items (things you can pick up or spawn)
-const ITEM_KINDS=['beans','soup','bread','water','bananas','coconut','jerry','toolbox','wheel','battery','radiator','barrel','crate','cone',...CD_SONGS.map(c=>c.id)];
-const CD_BY_ID=Object.fromEntries(CD_SONGS.map(c=>[c.id,c]));
-const cdMatCache={};
-function itemMesh(kind){
-  const g=new THREE.Group();
-  if(kind==='beans'||kind==='soup'){part(g,G.cyl,kind==='beans'?M.canLabel:M.soupLabel,0,.07,0,.06,.14,.06);part(g,G.cyl,M.canTop,0,.145,0,.061,.01,.061);}
-  else if(kind==='bread'){part(g,G.sphere,M.bread,0,.07,0,.15,.08,.08);}
-  else if(kind==='water'){part(g,G.cyl,M.bottle,0,.13,0,.05,.26,.05);part(g,G.cyl,M.cap,0,.28,0,.025,.03,.025);}
-  else if(kind==='bananas'){for(let k=0;k<4;k++)part(g,G.cyl,M.banana,(k-1.5)*.05,.05,0,.025,.22,.025,0,0,1.3+k*.05);}
-  else if(kind==='coconut'){part(g,G.sphere,M.coconut,0,.12,0,.13,.13,.13);}
-  else if(kind==='jerry'){part(g,G.box,M.redCan,0,.35,0,.5,.7,.25);part(g,G.box,M.kitGrey,.12,.75,0,.12,.12,.12);part(g,G.box,M.redCan,-.08,.74,0,.24,.06,.06);}
-  else if(kind==='toolbox'){part(g,G.box,M.kit,0,.17,0,.7,.34,.3);part(g,G.box,M.kitGrey,0,.38,0,.4,.05,.05);}
-  else if(kind==='wheel'){const w=makeWheel();w.rotation.z=Math.PI/2;w.position.y=.36;g.add(w);g.userData.inner=w;}
-  else if(kind==='battery'){const b=makeBattery();b.position.y=.1;g.add(b);g.userData.inner=b;}
-  else if(kind==='radiator'){const r=makeRadiator();r.position.y=.23;g.add(r);g.userData.inner=r;}
-  else if(kind==='barrel'){part(g,G.cyl,M.barrel,0,.45,0,.3,.9,.3);for(const y of[.15,.45,.75])part(g,G.cyl,M.barrelRing,0,y,0,.305,.03,.305);}
-  else if(kind==='crate'){part(g,G.box,M.crate,0,.4,0,.8,.8,.8);for(const s of[-1,1])part(g,G.box,M.trunk,s*.41,.4,0,.02,.8,.12);}
-  else if(kind==='cone'){part(g,G.cone,M.cone,0,.35,0,.18,.7,.18);part(g,G.cyl,M.coneW,0,.4,0,.115,.08,.115);part(g,G.box,M.cone,0,.02,0,.4,.04,.4);}
-  else if(CD_BY_ID[kind]){const cd=CD_BY_ID[kind];if(!cdMatCache[kind])cdMatCache[kind]=std(cd.col,{roughness:.4});
-    part(g,G.box,M.cdCase,0,.01,0,.14,.012,.125);part(g,G.cyl,M.cd,0,.018,0,.06,.002,.06);part(g,G.cyl,cdMatCache[kind],0,.0195,0,.045,.002,.045);}
-  g.userData.type=kind;return g;
+// ---------------------------------------------------------------------- items lying in the world
+// how a thing rests on the ground
+function restPose(o,k,x,y,z,ry=0){
+  o.position.set(x,y,z);o.rotation.set(0,ry,0);
+  if(k==='wheel'||k==='rim'||k==='tyre'){o.rotation.set(0,ry,Math.PI/2);o.position.y=y+.36;}
+  else if(k==='doorL'||k==='doorR'){o.rotation.set(0,ry+Math.PI/2,Math.PI/2);o.position.y=y+.05;}
+  else if(k==='hood'||k==='trunk'||k==='tailgate')o.position.y=y+.05;
+  else if(k==='battery')o.position.y=y+.1;
+  else if(k==='radiator')o.position.y=y+.23;
+  else if(k==='engine')o.position.y=y+.25;
+  else if(k==='seat')o.position.y=y+.13;
+  else if(k==='pistol'||k==='rifle'){o.rotation.set(0,ry,Math.PI/2);o.position.y=y+.03;}
 }
-function isFood(k){return !!FOOD[k];}
-function isCD(k){return !!CD_BY_ID[k];}
-function isSmall(k){return isFood(k)||isCD(k);}
-function isProp(k){return k==='barrel'||k==='crate'||k==='cone';}
-function itemName(k){return FOOD[k]?FOOD[k].name.toLowerCase():isCD(k)?'CD: '+CD_BY_ID[k].name:PART_NAMES[k]||k;}
-function itemEm(k){return FOOD[k]?FOOD[k].em:isCD(k)?'💿':PART_EM[k]||'❔';}
-function addItem(ch,group,kind,x,y,z,id){
+function addItem(ch,group,desc,x,y,z,id){
   if(taken.has(id))return;
-  const m=itemMesh(kind);m.position.set(x,y,z);m.rotation.y=Math.random()*6;group.add(m);ch.items.push({kind,x,y,z,mesh:m,id});
+  const m=makeFromDesc(desc);restPose(m,desc.k,x,y,z,Math.random()*6);group.add(m);ch.items.push({kind:desc.k,x,y,z,mesh:m,id});
 }
+let chunkHook=null; // game.js uses this to spawn animals for new chunks
 
 // ---------------------------------------------------------------------- abandoned house
 function buildHouse(ch,group,B,spot,rnd){
@@ -299,26 +284,29 @@ function buildHouse(ch,group,B,spot,rnd){
   ch.boxes.push({x0:tx-.62,x1:tx+.62,z0:tz-.42,z1:tz+.42,low:true});
   ch.boxes.push({x0:bx-.5,x1:bx+.5,z0:bz-1,z1:bz+1,low:true});
   // loot
-  const id=ch.i+':h',foods=S.foods,pick=()=>foods[(rnd()*foods.length)|0];
+  const id=ch.i+':h',foods=S.foods,pick=()=>({k:foods[(rnd()*foods.length)|0]});
   addItem(ch,group,pick(),tx-.3,fy+.81,tz,id+'0');
   if(rnd()<.7)addItem(ch,group,pick(),sx-.6,fy+1.13,sz-.2,id+'1');
   if(rnd()<.45)addItem(ch,group,pick(),sx+.5,fy+.53,sz-.2,id+'2');
-  const lr=rnd();
-  if(lr<.25)addItem(ch,group,'jerry',cx,fy,cz-.5,id+'3');
-  else if(lr<.45)addItem(ch,group,'toolbox',tx+.2,fy+.81,tz,id+'3');
-  else if(lr<.6)addItem(ch,group,'wheel',cx,fy,cz+.8,id+'3');
-  else if(lr<.72)addItem(ch,group,'battery',cx+.4,fy,cz-.8,id+'3');
-  else if(lr<.8)addItem(ch,group,'radiator',cx-.3,fy,cz+.5,id+'3');
-  if(rnd()<.35){const notOwned=CD_SONGS.filter(c=>!Radio.hasCD(c.id));const pool=notOwned.length?notOwned:CD_SONGS;addItem(ch,group,pool[(rnd()*pool.length)|0].id,sx+.2,fy+1.73,sz-.2,id+'4');}
+  const lr=rnd(),pickOf=o=>{const k=Object.keys(o);return k[(rnd()*k.length)|0];};
+  let loot=null;
+  if(lr<.2)loot={k:'jerry'};else if(lr<.35)loot={k:'toolbox'};else if(lr<.47)loot={k:'wheel',rim:pickOf(RIMS),tyre:pickOf(TYRES)};
+  else if(lr<.55)loot={k:'battery'};else if(lr<.62)loot={k:'radiator'};else if(lr<.7)loot={k:'tyre',v:pickOf(TYRES)};
+  else if(lr<.76)loot={k:'engine',v:pickOf(ENGINES)};else if(lr<.82)loot={k:'seat',v:pickOf(SEATS)};else if(lr<.86)loot={k:'rim',v:pickOf(RIMS)};
+  if(loot)addItem(ch,group,loot,cx,fy,cz-.5,id+'3');
+  if(rnd()<.35){const notOwned=CD_SONGS.filter(c=>!Radio.hasCD(c.id));const pool=notOwned.length?notOwned:CD_SONGS;addItem(ch,group,{k:pool[(rnd()*pool.length)|0].id},sx+.2,fy+1.73,sz-.2,id+'4');}
+  if(S.key!=='snow'&&rnd()<.45){ch.chickens=ch.chickens||[];const n=1+((rnd()*3)|0);for(let c=0;c<n;c++)ch.chickens.push([cx+(spot.side>0?-1:1)*(w/2+2+rnd()*4),cz+(rnd()-.5)*6,`${ch.i}:ck${c}`]);}
   ch.houses.push({x0,x1,z0,z1,fy,roof,h});
 }
 
 function buildWreck(ch,group,spot,rnd){
-  const C=makeVehicle(rnd()<.5?'sedan':'pickup',{rusty:true,noGlass:true});
+  const pickOf=o=>{const k=Object.keys(o);return k[(rnd()*k.length)|0];};
+  const C=makeVehicle(rnd()<.5?'sedan':'pickup',{rusty:true,noGlass:true,engine:pickOf(ENGINES),seat:rnd()<.7?'standard':pickOf(SEATS),tyre:pickOf(TYRES),rim:rnd()<.6?'steel':pickOf(RIMS)});
   const h=rnd()*6.28;
   for(const name of Object.keys(C.slots)){
     const id=`${ch.i}:w:${name}`;const s=C.slots[name];
-    if(rnd()<.4||taken.has(id)){if(s.obj)s.parent.remove(s.obj);s.obj=null;}
+    if(rnd()<.35||taken.has(id)){if(s.obj)s.parent.remove(s.obj);s.obj=null;}
+    else if(s.type==='wheel'&&s.obj&&rnd()<.2){takeTyreOff(s.obj);}
     s.id=id;
     if(s.hinge&&s.obj&&rnd()<.3){s.open=true;s.openAmt=1;s.hinge.rotation[s.axis]=s.angle;}
   }
@@ -328,7 +316,7 @@ function buildWreck(ch,group,spot,rnd){
   C.group.rotation.order='YXZ';C.group.rotation.set((rnd()-.5)*.06,h,(rnd()-.5)*.08);
   if(m.wheels>0)C.group.position.y-=.12*Math.min(2,m.wheels);
   group.add(C.group);
-  C.wreck=true;C.h=h;
+  C.wreck=true;C.h=h;C.chunk=ch.i;
   ch.wrecks.push(C);
   const f={x:Math.sin(h),z:Math.cos(h)};
   for(const o of[-1.3,0,1.3])ch.colliders.push({x:spot.x+f.x*o,z:spot.z+f.z*o,r:1.0});
@@ -341,9 +329,9 @@ function disposeChunk(ch){
 function clearChunks(){chunks.forEach(disposeChunk);chunks.clear();}
 function manageChunks(all,fz){
   const ci=Math.floor(fz/CH);
-  for(const[k,ch]of chunks)if(k<ci-2||k>ci+4){disposeChunk(ch);chunks.delete(k);}
+  for(const[k,ch]of chunks)if(k<ci-2||k>ci+4){disposeChunk(ch);chunks.delete(k);if(chunkHook)chunkHook(ch,true);}
   let built=0;
-  for(let k=ci-1;k<=ci+3;k++){if(!chunks.has(k)){chunks.set(k,buildChunk(k));if(!all&&++built>=1)break;}}
+  for(let k=ci-1;k<=ci+3;k++){if(!chunks.has(k)){const ch=buildChunk(k);chunks.set(k,ch);if(chunkHook)chunkHook(ch);if(!all&&++built>=1)break;}}
 }
 function nearChunks(z,f){const ci=Math.floor(z/CH);for(let k=ci-1;k<=ci+1;k++){const ch=chunks.get(k);if(ch)f(ch);}}
 

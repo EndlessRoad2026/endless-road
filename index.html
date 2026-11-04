@@ -19,18 +19,27 @@
     <button class="modeBtn" data-mode="sandbox"><b>🧰 Sandbox</b><small>Spawn cars and items, turn hunger off, play around.</small></button>
   </div>
   <div class="cards">
-    <button class="card c-desert" data-set="desert"><div class="em">🏜️</div><h2>Desert</h2>
-      <p>Long hot roads, dunes and rock towers. Push too hard and your engine overheats. Watch out for sandstorms.</p><div class="best" id="best-desert"></div></button>
-    <button class="card c-snow" data-set="snow"><div class="em">🏔️</div><h2>Snowy Mountains</h2>
-      <p>Icy roads, steep climbs and freezing cold. Keep the heater on (it uses fuel). Blizzards hide the road.</p><div class="best" id="best-snow"></div></button>
-    <button class="card c-jungle" data-set="jungle"><div class="em">🌴</div><h2>Jungle</h2>
-      <p>Muddy tracks, fallen logs and thick trees. When the rain comes, the mud gets worse and the road gets slippery.</p><div class="best" id="best-jungle"></div></button>
+    <div role="button" tabindex="0" class="card c-desert" data-set="desert"><div class="em">🏜️</div><h2>Desert</h2>
+      <p>Long hot roads, dunes and rock towers. Push too hard and your engine overheats. Watch out for sandstorms.</p><div class="best" id="best-desert"></div><div class="newg">▶ New game</div><div class="cont hidden" id="cont-desert"></div></div>
+    <div role="button" tabindex="0" class="card c-snow" data-set="snow"><div class="em">🏔️</div><h2>Snowy Mountains</h2>
+      <p>Icy roads, steep climbs and freezing cold. Keep the heater on (it uses fuel). Blizzards hide the road.</p><div class="best" id="best-snow"></div><div class="newg">▶ New game</div><div class="cont hidden" id="cont-snow"></div></div>
+    <div role="button" tabindex="0" class="card c-jungle" data-set="jungle"><div class="em">🌴</div><h2>Jungle</h2>
+      <p>Muddy tracks, fallen logs and thick trees. When the rain comes, the mud gets worse and the road gets slippery.</p><div class="best" id="best-jungle"></div><div class="newg">▶ New game</div><div class="cont hidden" id="cont-jungle"></div></div>
+  </div>
+  <div class="mp">
+    <b>👥 Play with friends</b>
+    <input id="mpName" maxlength="14" placeholder="Your name">
+    <label class="chk"><input type="checkbox" id="mpHost"> Let friends join my world</label>
+    <span class="or">or</span>
+    <input id="mpCode" maxlength="5" placeholder="CODE" style="width:84px;text-transform:uppercase">
+    <button class="btn sm" id="mpJoin">Join a friend</button>
+    <div id="mpMsg"></div>
   </div>
   <div class="controls">
-    <b>Drive:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>Space</kbd> handbrake · <kbd>H</kbd> heater &nbsp; <b>Walk:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump<br>
+    <b>Drive:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>Space</kbd> handbrake · <kbd>H</kbd> heater &nbsp; <b>Walk:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>Q</kbd> run · <kbd>Shift</kbd> crouch · <kbd>Space</kbd> jump<br>
     <b>Click</b> the game to look around with the mouse · <kbd>V</kbd> first / third person · <kbd>P</kbd> pause<br>
     <kbd>E</kbd> use (get in/out, open doors &amp; bonnets, pick up, fit parts) · <b>hold</b> <kbd>E</kbd> take a part off · <kbd>G</kbd> drop<br>
-    <kbd>1</kbd>–<kbd>4</kbd> hotbar · <kbd>F</kbd> eat / play CD · <kbd>R</kbd> radio · <kbd>M</kbd> sandbox menu
+    <kbd>1</kbd>–<kbd>4</kbd> hotbar · <kbd>F</kbd> eat / play CD · <kbd>R</kbd> radio · <kbd>M</kbd> sandbox menu · <b>click</b> shoot (sandbox guns)<br>Your game saves by itself. Pick <b>Continue</b> on a world to carry on.
   </div>
 </div>
 
@@ -58,6 +67,7 @@
     </div>
   </div>
   <div id="weather"></div>
+  <div id="room" class="hidden"></div>
   <div class="topRight">
     <div class="stats"><div class="dist" id="dist">0.00 km</div><div class="sub" id="bestTxt"></div></div>
     <div class="iconRow"><div id="sbBtn" class="iconBtn hidden" title="Sandbox menu (M)">🧰</div><div id="radioBtn" class="iconBtn" title="Car radio (R)">📻</div></div>
@@ -80,6 +90,7 @@
   <div class="sbPanel">
     <div class="sbHead"><b>Sandbox Menu</b><button id="sbClose">✕</button></div>
     <div class="sbTabs"><button class="sbTab sel" data-tab="vehicles">Vehicles</button><button class="sbTab" data-tab="items">Items</button><button class="sbTab" data-tab="game">Game</button></div>
+    <div id="sbCats"></div>
     <div class="sbBody"><div id="sbGrid"></div><div id="sbSide"></div></div>
   </div>
 </div>
@@ -88,7 +99,7 @@
   <div class="tb" id="tL">◀</div><div class="tb" id="tR">▶</div>
   <div class="tb" id="tBrk">BACK</div><div class="tb" id="tGas">GO</div>
   <div class="tb sm" id="tAct">E</div><div class="tb sm" id="tEat">EAT</div><div class="tb sm" id="tDrop">DROP</div><div class="tb sm" id="tView">VIEW</div>
-  <div class="tb sm hidden" id="tHeat">HEAT</div>
+  <div class="tb sm hidden" id="tHeat">HEAT</div><div class="tb sm" id="tCrouch">DUCK</div><div class="tb hidden" id="tFire">FIRE</div>
   <div class="tb" id="tPause">❚❚</div>
 </div>
 
@@ -111,7 +122,9 @@
 <script src="js/core.js"></script>
 <script src="js/radio.js"></script>
 <script src="js/vehicles.js"></script>
+<script src="js/parts.js"></script>
 <script src="js/world.js"></script>
+<script src="js/net.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>
