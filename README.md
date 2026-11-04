@@ -4,7 +4,7 @@ A desert survival driving game made by Louis (with a little help from Claude).
 
 Pick a world (Desert, Snowy Mountains or Jungle), drive as far as you can, and scavenge abandoned houses and wrecked cars for food, fuel, tools and spare parts.
 
-**Play:** https://endlessroad.co.za
+**Play:** https://play.endlessroad.co.za
 
 ## Controls
 - Drive: W A S D or the arrow keys, H heater, P pause
