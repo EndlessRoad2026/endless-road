@@ -577,7 +577,7 @@ function updateProps(dt){
 
 // ---------------------------------------------------------------------- chickens
 function spawnChicken(x,z,tag){
-  const obj=makeChicken();const a={obj,rig:obj.userData.rig,x,z,y:floorAt(x,z),h:Math.random()*6.28,vy:0,state:'wander',t:Math.random()*3,phase:0,tag,eggT:50+Math.random()*80,cluckT:4+Math.random()*10,held:false};
+  const obj=makeChicken();obj.userData.desc={k:'chicken'};const a={obj,rig:obj.userData.rig,x,z,y:floorAt(x,z),h:Math.random()*6.28,vy:0,state:'wander',t:Math.random()*3,phase:0,tag,eggT:50+Math.random()*80,cluckT:4+Math.random()*10,held:false};
   scene.add(obj);animals.push(a);return a;
 }
 chunkHook=(ch,removed)=>{
