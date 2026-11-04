@@ -322,7 +322,7 @@ function candidates(){
 }
 function chooseTarget(c){
   if(!c.length)return null;
-  if(CAM.fp||locked()){
+  if(CAM.fp||locked()||GP.active){
     const eye=new THREE.Vector3(P.x,P.y+(P.crouch>.5?1.15:1.62),P.z),dir=lookDir();let best=null,ba=1e9;
     for(const k of c){const v=new THREE.Vector3(k.x,k.y,k.z).sub(eye);const d=v.length();if(d>3)continue;const a=v.normalize().angleTo(dir);
       if(a<Math.atan(.45/Math.max(d,.3))+.12&&a<ba){ba=a;best=k;}}
@@ -405,7 +405,7 @@ function pushCircle(o,r,selfV){
 // ---------------------------------------------------------------------- vehicle physics
 function updateVehicle(V,dt){
   const drive=P.vehicle===V,C=V.C,sp=C.spec;
-  const throttle=drive&&input.up?1:0,brake=drive&&input.down?1:0,steer=drive?(input.left?1:0)-(input.right?1:0):0,hand=drive&&input.jump;
+  const throttle=drive?Math.max(input.up?1:0,GP.gas):0,brake=drive?Math.max(input.down?1:0,GP.brake):0,steer=drive?clamp((input.left?1:0)-(input.right?1:0)-GP.steer,-1,1):0,hand=drive&&input.jump;
   const f={x:Math.sin(V.h),z:Math.cos(V.h)},r={x:Math.cos(V.h),z:-Math.sin(V.h)};
   let vf=V.vx*f.x+V.vz*f.z,vr=V.vx*r.x+V.vz*r.z;
   for(const s of Object.values(C.slots))if(s.hinge){s.openAmt+=((s.open?1:0)-s.openAmt)*Math.min(1,dt*6);s.hinge.rotation[s.axis]=s.angle*s.openAmt;}
@@ -425,8 +425,8 @@ function updateVehicle(V,dt){
   if(drive&&throttle&&!V.noGoToast&&(ms.battery||!eng)){V.noGoToast=true;toast(!eng?'⚙️ There is no engine! Fit one under the bonnet':'🔋 No battery! The engine won\'t start','warn');}
   if(eng&&!ms.battery)V.noGoToast=false;
   const power=(.45+.55*(V.engine/100))*(1+.04*ms.panels)*(sp.accel/13)*(eng?eng.power:0);
-  if(throttle&&canDrive){if(vf<maxS)vf+=(vf<0?24:13)*power*dt;}
-  if(brake){if(vf>.5)vf-=26*dt;else if(canDrive&&vf>-9)vf-=8*dt;}
+  if(throttle&&canDrive){if(vf<maxS)vf+=(vf<0?24:13)*power*throttle*dt;}
+  if(brake){if(vf>.5)vf-=26*brake*dt;else if(canDrive&&vf>-9)vf-=8*brake*dt;}
   if(hand)vf-=Math.sign(vf)*Math.min(Math.abs(vf),18*dt);
   if(!throttle&&!brake&&vf<0)vf+=Math.min(-vf,4*dt);
   if(!drive)vf-=Math.sign(vf)*Math.min(Math.abs(vf),8*dt);
@@ -449,7 +449,7 @@ function updateVehicle(V,dt){
     V.x+=o.x-ox;V.z+=o.z-oz;
     const vn=-(V.vx*res.nx+V.vz*res.nz);
     if(vn>0){V.vx+=res.nx*vn*1.4;V.vz+=res.nz*vn*1.4;V.vx*=.6;V.vz*=.6;
-      if(vn>3){const dmg=Math.round(vn*1.15*(1+.15*ms.panels));if(eng)V.engine=Math.max(0,V.engine-dmg);if(drive){toast('💥 Crash! Engine −'+dmg,'warn');flash();shake=Math.min(1,vn/20);
+      if(vn>3){const dmg=Math.round(vn*1.15*(1+.15*ms.panels));if(eng)V.engine=Math.max(0,V.engine-dmg);if(drive){toast('💥 Crash! Engine −'+dmg,'warn');flash();rumble(Math.min(1,vn/15),250);shake=Math.min(1,vn/20);
         if(dmg>15){P.health-=dmg*.35*(1+.3*ms.doors);P.cause='crash';}}}}
   }
   // knock props over when you drive into them
@@ -504,12 +504,12 @@ function updateDashboard(V,dt){
 // ---------------------------------------------------------------------- person
 function updatePerson(dt){
   if(P.vehicle)return;
-  const lk=locked();
+  const lk=locked()||GP.active;
   const turn=(input.left?1:0)-(input.right?1:0);
   if(!lk)P.h+=turn*2.7*dt;
   P.crouch+=((input.crouch?1:0)-P.crouch)*Math.min(1,dt*10);
   const crouching=P.crouch>.5;
-  const fw=(input.up?1:0)-(input.down?.6:0),strafe=lk?turn:0;
+  const fw=clamp((input.up?1:0)-(input.down?.6:0)-GP.ly*(GP.ly>0?.6:1),-1,1),strafe=lk?clamp(turn-GP.lx,-1,1):0;
   const wantRun=input.run&&fw>0&&!crouching&&!(P.holding&&heavy(P.holding.kind))&&P.stamina>5;
   const spd=crouching?1.5:wantRun?6.2:(P.holding&&heavy(P.holding.kind)?2.4:3.3);
   const f={x:Math.sin(P.h),z:Math.cos(P.h)},r={x:Math.cos(P.h),z:-Math.sin(P.h)};
@@ -542,7 +542,7 @@ function spawnPuff(x,y,z,col,n=6,spread=.3,up=1){
     puffs.push({m,v:new THREE.Vector3((Math.random()-.5)*spread*6,Math.random()*up*2,(Math.random()-.5)*spread*6),t:.6+Math.random()*.4});}
 }
 function shoot(kind){
-  const rifle=kind==='rifle';shootT=rifle?.6:.28;recoil=1;SFX.shot(rifle);
+  const rifle=kind==='rifle';rumble(rifle?.6:.35,rifle?120:70);shootT=rifle?.6:.28;recoil=1;SFX.shot(rifle);
   const o=camera.position.clone(),d=new THREE.Vector3();camera.getWorldDirection(d);
   const head=new THREE.Vector3(P.x,P.y+1.5,P.z);const t0=CAM.fp?0:Math.max(0,o.distanceTo(head)-.2);
   const range=rifle?160:70;let best=null,bt=range;
@@ -640,7 +640,7 @@ function hidePrompt(){$('prompt').classList.add('hidden');promptHtml='';}
 let koT=0;
 Net.onHit=d=>{
   if(state!=='play'||koT>0)return;
-  P.health-=d.dmg;flash();shake=.4;SFX.hit();
+  P.health-=d.dmg;flash();shake=.4;SFX.hit();rumble(.8,200);
   if(P.health>0){toast(`💥 ${d.name} hit you! (−${d.dmg})`,'warn');return;}
   P.health=1;koT=3;Net.sendKo(d.from,d.name);toast(`💫 ${d.name} knocked you out!`,'warn');$('ko').classList.remove('hidden');
 };
@@ -728,6 +728,7 @@ function render(dt){
 }
 
 // ---------------------------------------------------------------------- HUD
+const KE=()=>GP.active?'X':'E';
 const bar=(id,v)=>{$(id).style.width=clamp(v,0,100)+'%';};
 function updateHud(){
   const V=P.vehicle||nearestVehicle(8)||lastV;
@@ -748,16 +749,16 @@ function updateHud(){
   if(S.hazard==='cold')bar('warmBar',P.warmth);
   $('hunWrap').classList.toggle('dim',!GAME.hunger);
   document.querySelectorAll('.hslot').forEach((el,i)=>{const k=P.hot[i];el.classList.toggle('sel',i===P.sel);el.querySelector('.em').textContent=k?descEm({k}):'';el.title=k?descName({k}):'';});
-  $('holdTxt').textContent=P.holding?'✋ Holding: '+descName(descOf(P.holding.obj))+(isGun(P.holding.kind)?'  (click to shoot, G to drop)':'  (G to drop)'):'';
+  $('holdTxt').textContent=P.holding?'✋ Holding: '+descName(descOf(P.holding.obj))+(GP.active?(isGun(P.holding.kind)?'  (RT to shoot, D-pad ↓ to drop)':'  (D-pad ↓ to drop)'):(isGun(P.holding.kind)?'  (click to shoot, G to drop)':'  (G to drop)')):'';
   $('holdTxt').classList.toggle('hidden',!P.holding);
   $('dist').textContent=progress().toFixed(2)+' km';
   $('weather').textContent=stormAmt>.5?S.stormName:'☀️ Clear';
-  $('cross').classList.toggle('hidden',!(CAM.fp||(locked()&&!P.vehicle)));
+  $('cross').classList.toggle('hidden',!(CAM.fp||((locked()||GP.active)&&!P.vehicle)));
   if(Net.role!=='off'&&Net.code){$('room').textContent=`👥 Room ${Net.code}${Net.role==='host'?' · share this code':''} · ${Net.count+1} playing`;$('room').classList.remove('hidden');}else $('room').classList.add('hidden');
   if(stationMsgT>0)return;
-  if(P.vehicle){if(vSpeed(P.vehicle)<1.5)showPrompt('<kbd>E</kbd> Get out',true);else hidePrompt();return;}
+  if(P.vehicle){if(vSpeed(P.vehicle)<1.5)showPrompt(`<kbd>${KE()}</kbd> Get out`,true);else hidePrompt();return;}
   const a=promptAction;
-  if(a){let h=`<kbd>E</kbd> ${a.label}`;if(a.hold)h+=` <span class="hold">· hold <kbd>E</kbd> ${a.hold.label}</span>`;
+  if(a){let h=`<kbd>${KE()}</kbd> ${a.label}`;if(a.hold)h+=` <span class="hold">· hold <kbd>${KE()}</kbd> ${a.hold.label}</span>`;
     if(E.down&&E.target===a&&a.hold&&!E.fired)h+=`<div class="hbar"><i style="width:${Math.min(100,E.t/.55*100)}%"></i></div>`;showPrompt(h,true);}
   else hidePrompt();
 }
@@ -848,6 +849,77 @@ function bindGameTab(){
 document.querySelectorAll('.sbTab').forEach(b=>b.addEventListener('click',()=>{SB.tab=b.dataset.tab;SB.sel=null;renderSandbox();}));
 $('sbClose').addEventListener('click',closeSandbox);
 
+
+// ---------------------------------------------------------------------- game controller (Xbox / PlayStation / any standard gamepad)
+// Driving: RT gas · LT brake · left stick steer · A handbrake.  Walking: left stick move · right stick look · A jump · B crouch · LS run.
+// X use (hold X to take parts off) · Y eat / play CD · RT shoot · LB/RB hotbar · RS switch view · D-pad: down drop, up radio, left/right station
+// View button: sandbox menu · Menu button: pause.  In menus: stick / D-pad to move, A to choose, B to go back.
+const GP={active:false,lx:0,ly:0,rx:0,ry:0,gas:0,brake:0,steer:0,prev:[],pad:null,navT:0,focus:null};
+try{if('gamepadInputEmulation' in navigator)navigator.gamepadInputEmulation='gamepad';}catch(e){}
+const dz=(v,d=.18)=>Math.abs(v)<d?0:(v-Math.sign(v)*d)/(1-d);
+function rumble(strength,ms){const g=GP.pad;try{if(g&&g.vibrationActuator)g.vibrationActuator.playEffect('dual-rumble',{duration:ms,strongMagnitude:strength,weakMagnitude:strength*.6});}catch(e){}}
+addEventListener('gamepadconnected',e=>{toast('🎮 Controller connected');});
+function pollPad(dt){
+  let pads=[];try{pads=navigator.getGamepads?[...navigator.getGamepads()]:[];}catch(e){}
+  const g=pads.find(p=>p&&p.connected&&p.buttons.length>=12);
+  if(!g){if(GP.active){GP.active=false;GP.lx=GP.ly=GP.rx=GP.ry=GP.gas=GP.brake=GP.steer=0;}return;}
+  GP.pad=g;
+  const b=i=>!!(g.buttons[i]&&(g.buttons[i].pressed||g.buttons[i].value>.5)),bv=i=>g.buttons[i]?g.buttons[i].value:0;
+  const now=g.buttons.map((_,i)=>b(i)),was=GP.prev,pressed=i=>now[i]&&!was[i],released=i=>!now[i]&&was[i];
+  const ax=i=>dz(g.axes[i]||0);
+  const any=now.some(x=>x)||g.axes.some(a=>Math.abs(a)>.3);
+  if(any&&!GP.active){GP.active=true;$('touch').classList.add('hidden');}
+  GP.prev=now;
+  if(!GP.active)return;
+  if(state==='play'&&!menuOpen){
+    GP.lx=ax(0);GP.ly=ax(1);GP.rx=ax(2);GP.ry=ax(3);
+    GP.gas=Math.max(bv(7),0);GP.brake=Math.max(bv(6),0);GP.steer=GP.lx;
+    if(!P.vehicle){GP.gas=GP.brake=0;}
+    // look around
+    if(GP.rx||GP.ry){CAM.lastMouse=performance.now();
+      if(P.vehicle){CAM.yawOff=clamp(CAM.yawOff-GP.rx*2.4*dt,CAM.fp?-2.2:-Math.PI,CAM.fp?2.2:Math.PI);CAM.pitch=clamp(CAM.pitch-GP.ry*1.6*dt,-1.1,.9);}
+      else{P.h-=GP.rx*2.8*Math.abs(GP.rx)*dt*1.2;CAM.pitch=clamp(CAM.pitch-GP.ry*1.9*dt,-1.3,1.2);}}
+    input.jump=b(0);input.crouch=b(1)&&!P.vehicle;
+    if(pressed(10))GP.run=!GP.run;if(Math.hypot(GP.lx,GP.ly)<.2)GP.run=false;input.run=GP.run||false;
+    input.fire=!P.vehicle&&!!P.holding&&isGun(P.holding.kind)&&bv(7)>.4;
+    if(pressed(2))eDown();if(released(2))eUp();
+    if(pressed(3))useSelected();
+    if(pressed(13))drop();
+    if(pressed(4))P.sel=(P.sel+3)%4;if(pressed(5))P.sel=(P.sel+1)%4;
+    if(pressed(11)){CAM.fp=!CAM.fp;toast(CAM.fp?'👁️ First-person view':'🎥 Third-person view');}
+    if(pressed(12))Radio.toggle();
+    if(pressed(15)){if(Radio.on)Radio.next();else Radio.power(true);}
+    if(pressed(14)){if(Radio.on)Radio.prev();}
+    if(pressed(8)&&GAME.mode==='sandbox')openSandbox();
+    if(pressed(9))togglePause();
+    if(S.hazard==='cold'&&pressed(1)&&P.vehicle)toggleHeater();
+    return;
+  }
+  // ---- menus: move a highlight between buttons
+  GP.lx=GP.ly=GP.rx=GP.ry=GP.gas=GP.brake=GP.steer=0;input.fire=false;
+  const scr=menuOpen?$('sandbox'):['pause','over','menu'].map($).find(e=>!e.classList.contains('hidden'));
+  if(!scr)return;
+  const els=[...scr.querySelectorAll('button,.newg,.cont,input,.sw i,[data-key]')].filter(e=>e.offsetParent!==null&&!e.closest('.hidden'));
+  if(!els.length)return;
+  if(!GP.focus||!els.includes(GP.focus))setPadFocus(els[0]);
+  const dx=(b(15)?1:0)-(b(14)?1:0)||Math.round(dz(g.axes[0]||0,.5)),dy=(b(13)?1:0)-(b(12)?1:0)||Math.round(dz(g.axes[1]||0,.5));
+  GP.navT-=dt;
+  if((dx||dy)&&GP.navT<=0){GP.navT=.2;const nx=padNeighbour(els,GP.focus,dx,dy);if(nx)setPadFocus(nx);}
+  if(!dx&&!dy)GP.navT=0;
+  const sc=dz(g.axes[3]||0,.3);if(sc){const box=GP.focus.closest('#sbGrid,#sbSide,.screen');if(box)box.scrollTop+=sc*600*dt;}
+  if(pressed(0)){const f=GP.focus;if(f.tagName==='INPUT'){if(f.type==='checkbox')f.click();else f.focus();}else f.click();}
+  if(pressed(1)){if(menuOpen)closeSandbox();else if(state==='pause')togglePause();}
+  if(pressed(9)&&state==='pause')togglePause();
+  if(pressed(8)&&menuOpen)closeSandbox();
+}
+function setPadFocus(el){if(GP.focus)GP.focus.classList.remove('gpFocus');GP.focus=el;el.classList.add('gpFocus');try{el.scrollIntoView({block:'nearest',inline:'nearest'});}catch(e){}}
+function padNeighbour(els,cur,dx,dy){
+  const c=cur.getBoundingClientRect(),cx=c.left+c.width/2,cy=c.top+c.height/2;let best=null,bs=1e9;
+  for(const e of els){if(e===cur)continue;const r=e.getBoundingClientRect(),x=r.left+r.width/2-cx,y=r.top+r.height/2-cy;
+    const along=dx?x*dx:y*dy,across=dx?Math.abs(y):Math.abs(x);if(along<=4)continue;const sc=Math.hypot(along,across)*(across>along*1.6?3:1);if(sc<bs){bs=sc;best=e;}}
+  return best;
+}
+
 // ---------------------------------------------------------------------- loop
 let last=performance.now();
 function step(dt){
@@ -862,11 +934,12 @@ function step(dt){
 function loop(now){
   requestAnimationFrame(loop);
   const dt=Math.min(.05,(now-last)/1000);last=now;
+  pollPad(dt);
   if(state==='play'){step(dt);if(state==='play')updateHud();}
   if(state!=='menu')render(state==='play'?dt:0);
 }
 requestAnimationFrame(loop);
 
 // hook used by automated tests
-window.__game={renderer,scene,camera,P,CAM,input,vehicles,loose,animals,GAME,startGame,continueGame,saveGame,loadSave,roadX,candidates,chooseTarget,eDown,eUp,useSelected,drop,openSandbox,closeSandbox,spawnSelected,SB,chunks,shoot,spawnChicken,
+window.__game={GP,pollPad,renderer,scene,camera,P,CAM,input,vehicles,loose,animals,GAME,startGame,continueGame,saveGame,loadSave,roadX,candidates,chooseTarget,eDown,eUp,useSelected,drop,openSandbox,closeSandbox,spawnSelected,SB,chunks,shoot,spawnChicken,
   get state(){return state;},forceStorm(){nextStorm=0;},step(n,dt){for(let i=0;i<n;i++){step(dt);render(dt);}updateHud();},tap(){eDown();eUp();},hold(){eDown();E.t=1;if(E.target&&E.target.hold){E.fired=true;E.target.hold.fn();}E.down=false;}};
